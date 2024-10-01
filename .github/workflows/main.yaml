@@ -1,0 +1,99 @@
+name: CI/CD Pipeline
+
+on:
+  push:    # Запуск при любом коммите в репозиторий
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Клонирование репозитория
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    # Проверка наличия Dockerfile
+    - name: Check Dockerfile exists
+      run: test -f Dockerfile
+
+    # Вход в DockerHub
+    - name: Log in to DockerHub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    # Сборка и отправка Docker-образа с тегом "latest" при любом коммите
+    - name: Build and push Docker image with latest tag
+      if: startsWith(github.ref, 'refs/heads/')
+      run: |
+        docker build -t maltsevvm/test_app:latest .
+        docker push maltsevvm/test_app:latest
+
+    # Проверка успешности отправки Docker-образа "latest"
+    - name: Verify Docker push with latest tag
+      if: startsWith(github.ref, 'refs/heads/')
+      run: |
+        docker pull maltsevvm/test_app:latest
+        echo "Docker image with latest tag successfully pushed."
+
+    # Сборка и отправка Docker-образа с соответствующим тегом при создании тега
+    - name: Build and push Docker image with tag
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        TAG=${GITHUB_REF#refs/tags/}
+        docker build -t maltsevvm/test_app:${TAG} .
+        docker push maltsevvm/test_app:${TAG}
+
+    # Проверка успешности отправки Docker-образа с тегом
+    - name: Verify Docker push with tag
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        TAG=${GITHUB_REF#refs/tags/}
+        docker pull maltsevvm/test_app:${TAG}
+        echo "Docker image with tag ${TAG} successfully pushed."
+
+  deploy:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    needs: build-and-push
+
+    steps:
+    # Клонирование репозитория
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    # Установка kubectl
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'latest'
+
+    # Настройка доступа к Kubernetes
+    - name: Set up Kubeconfig
+      run: |
+        mkdir -p ~/.kube
+        echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
+
+    # Проверка доступности Kubernetes кластера
+    - name: Verify Kubernetes connection
+      run: |
+        kubectl config view
+        kubectl cluster-info
+        echo "Kubernetes cluster is accessible."
+
+    # Деплой Docker-образа с тегом в Kubernetes
+    - name: Deploy tagged Docker image to Kubernetes
+      run: |
+        TAG=${GITHUB_REF#refs/tags/}
+        kubectl set image deployment/nginx-deployment nginx=maltsevvm/test_app:${TAG} -n default
+        kubectl rollout status deployment/nginx-deployment -n default
+
+    # Проверка успешности деплоя
+    - name: Verify deployment rollout
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        kubectl get pods -n default
+        kubectl rollout status deployment/nginx-deployment -n default
+        echo "Deployment with tag ${TAG} successfully rolled out."
+
