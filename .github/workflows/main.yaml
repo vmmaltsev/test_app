@@ -108,13 +108,19 @@ jobs:
       # Деплой Docker-образа в Kubernetes
       - name: Deploy to Kubernetes
         run: |
-          kubectl set image deployment/my-deployment my-container=${{ env.IMAGE_NAME }}:${{ env.TAG }} --record -n default
-          kubectl rollout status deployment/my-deployment -n default
+          # Verify that the deployment exists in the cluster
+          if kubectl get deployment my-deployment -n default; then
+            kubectl set image deployment/my-deployment my-container=${{ env.IMAGE_NAME }}:${{ env.TAG }} --record -n default
+            kubectl rollout status deployment/my-deployment -n default
+          else
+            echo "Deployment 'my-deployment' not found in the 'default' namespace. Please ensure it exists or provide the correct name and namespace."
+            exit 1
+          fi
 
       # Проверка успешности деплоя
       - name: Verify deployment
         run: |
-          kubectl get pods
+          kubectl get pods -n default
           echo "Deployment with tag ${{ env.TAG }} successfully rolled out."
 
       # Уведомление об успешном деплое
