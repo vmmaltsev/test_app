@@ -108,8 +108,8 @@ jobs:
       # Деплой Docker-образа в Kubernetes
       - name: Deploy to Kubernetes
         run: |
-          kubectl set image deployment/my-deployment my-container=${{ env.IMAGE_NAME }}:${{ env.TAG }} --record
-          kubectl rollout status deployment/my-deployment
+          kubectl set image deployment/my-deployment my-container=${{ env.IMAGE_NAME }}:${{ env.TAG }} --record -n default
+          kubectl rollout status deployment/my-deployment -n default
 
       # Проверка успешности деплоя
       - name: Verify deployment
