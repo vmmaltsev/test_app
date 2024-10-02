@@ -114,11 +114,11 @@ jobs:
           # Check if the deployment exists
           if kubectl get deployment nginx-deployment -n default; then
             echo "Updating existing deployment..."
-            kubectl set image deployment/nginx-deployment nginx=${{ env.IMAGE_NAME }}:${TAG} -n default
+            kubectl set image deployment/nginx-deployment app-container=maltsevvm/test_app:${TAG} -n default
             kubectl rollout status deployment/nginx-deployment -n default
           else
             echo "Creating a new deployment..."
-            kubectl create deployment nginx-deployment --image=${{ env.IMAGE_NAME }}:${TAG} -n default
+            kubectl create deployment nginx-deployment --image=maltsevvm/test_app:${TAG} -n default
             kubectl expose deployment nginx-deployment --port=80 -n default
           fi
 
