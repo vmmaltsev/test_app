@@ -93,13 +93,11 @@ jobs:
       - name: Set up kubectl
         uses: azure/setup-kubectl@v4
 
-      # Настройка доступа к Kubernetes
-      - name: Set Kubernetes context
-        uses: azure/k8s-set-context@v4
-        with:
-          method: service-account
-          k8s-url: ${{ secrets.KUBERNETES_URL }}
-          k8s-secret: ${{ secrets.KUBERNETES_SECRET }}
+      # Настройка Kubeconfig
+      - name: Set up Kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
 
       # Проверка доступности Kubernetes кластера
       - name: Verify Kubernetes connection
