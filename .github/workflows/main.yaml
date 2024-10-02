@@ -110,11 +110,12 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           TAG=${GITHUB_REF#refs/tags/}
-          
-          # Check if the deployment exists
+
+          # Проверяем, существует ли деплоймент
           if kubectl get deployment nginx-deployment -n default; then
             echo "Updating existing deployment..."
-            kubectl set image deployment/nginx-deployment app-container=maltsevvm/test_app:${TAG} -n default
+            # Обновляем образ контейнера, используя правильное имя контейнера
+            kubectl set image deployment/nginx-deployment *=maltsevvm/test_app:${TAG} -n default
             kubectl rollout status deployment/nginx-deployment -n default
           else
             echo "Creating a new deployment..."
