@@ -105,17 +105,13 @@ jobs:
           kubectl cluster-info
           echo "Kubernetes cluster is accessible."
 
-      # Деплой Docker-образа в Kubernetes
-      - name: Deploy to Kubernetes
+      # Деплой Docker-образа с тегом в Kubernetes
+      - name: Deploy tagged Docker image to Kubernetes
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
-          # Verify that the deployment exists in the cluster
-          if kubectl get deployment my-deployment -n default; then
-            kubectl set image deployment/my-deployment my-container=${{ env.IMAGE_NAME }}:${{ env.TAG }} --record -n default
-            kubectl rollout status deployment/my-deployment -n default
-          else
-            echo "Deployment 'my-deployment' not found in the 'default' namespace. Please ensure it exists or provide the correct name and namespace."
-            exit 1
-          fi
+          TAG=${GITHUB_REF#refs/tags/}
+          kubectl set image deployment/nginx-deployment nginx=${{ env.IMAGE_NAME }}:${TAG} -n default
+          kubectl rollout status deployment/nginx-deployment -n default
 
       # Проверка успешности деплоя
       - name: Verify deployment
