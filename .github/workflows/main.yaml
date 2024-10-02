@@ -92,8 +92,6 @@ jobs:
       # Установка kubectl
       - name: Set up kubectl
         uses: azure/setup-kubectl@v4
-        with:
-          version: '1.21.0'  # Укажите версию, совместимую с вашим кластером
 
       # Настройка доступа к Kubernetes
       - name: Set Kubernetes context
