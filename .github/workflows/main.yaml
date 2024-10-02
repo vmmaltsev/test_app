@@ -1,99 +1,132 @@
 name: CI/CD Pipeline
 
 on:
-  push:    # Запуск при любом коммите в репозиторий
+  push:
+    branches:
+      - '**'
+    tags:
+      - '*'
+
+env:
+  IMAGE_NAME: maltsevvm/test_app
+  TAG: ${{ github.ref_name }}
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
 
     steps:
-    # Клонирование репозитория
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      # Клонирование репозитория
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    # Проверка наличия Dockerfile
-    - name: Check Dockerfile exists
-      run: test -f Dockerfile
+      # Установка Nginx для проверки конфигурации
+      - name: Install Nginx
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nginx
 
-    # Вход в DockerHub
-    - name: Log in to DockerHub
-      uses: docker/login-action@v2
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # Проверка синтаксиса конфигурации Nginx
+      - name: Validate Nginx Configuration
+        run: |
+          echo "Validating Nginx configuration..."
+          sudo nginx -t -c $GITHUB_WORKSPACE/nginx.conf
 
-    # Сборка и отправка Docker-образа с тегом "latest" при любом коммите
-    - name: Build and push Docker image with latest tag
-      if: startsWith(github.ref, 'refs/heads/')
-      run: |
-        docker build -t maltsevvm/test_app:latest .
-        docker push maltsevvm/test_app:latest
+      # Проверка наличия Dockerfile
+      - name: Check Dockerfile exists
+        run: test -f Dockerfile
 
-    # Проверка успешности отправки Docker-образа "latest"
-    - name: Verify Docker push with latest tag
-      if: startsWith(github.ref, 'refs/heads/')
-      run: |
-        docker pull maltsevvm/test_app:latest
-        echo "Docker image with latest tag successfully pushed."
+      # Установка Docker Buildx
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
 
-    # Сборка и отправка Docker-образа с соответствующим тегом при создании тега
-    - name: Build and push Docker image with tag
-      if: startsWith(github.ref, 'refs/tags/')
-      run: |
-        TAG=${GITHUB_REF#refs/tags/}
-        docker build -t maltsevvm/test_app:${TAG} .
-        docker push maltsevvm/test_app:${TAG}
+      # Вход в DockerHub
+      - name: Log in to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-    # Проверка успешности отправки Docker-образа с тегом
-    - name: Verify Docker push with tag
-      if: startsWith(github.ref, 'refs/tags/')
-      run: |
-        TAG=${GITHUB_REF#refs/tags/}
-        docker pull maltsevvm/test_app:${TAG}
-        echo "Docker image with tag ${TAG} successfully pushed."
+      # Сборка и отправка Docker-образа
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ env.TAG }}
+          cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:cache
+          cache-to: type=registry,ref=${{ env.IMAGE_NAME }}:cache,mode=max
+
+      # Тестирование доступности сайта
+      - name: Test Site Availability
+        run: |
+          echo "Testing site availability..."
+          docker run -d --name test_container -p 8080:80 ${{ env.IMAGE_NAME }}:${{ env.TAG }}
+          sleep 5
+          curl -I http://localhost:8080
+          docker stop test_container
+          docker rm test_container
+
+      # Уведомление об успешной сборке
+      - name: Notify Success
+        if: success()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          fields: repo,ref,author,commit
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   deploy:
     if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
     needs: build-and-push
+    runs-on: ubuntu-latest
 
     steps:
-    # Клонирование репозитория
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      # Клонирование репозитория
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    # Установка kubectl
-    - name: Set up kubectl
-      uses: azure/setup-kubectl@v3
-      with:
-        version: 'latest'
+      # Установка kubectl
+      - name: Set up kubectl
+        uses: actions/setup-kubectl@v3
+        with:
+          version: '1.21.0'  # Укажите версию, совместимую с вашим кластером
 
-    # Настройка доступа к Kubernetes
-    - name: Set up Kubeconfig
-      run: |
-        mkdir -p ~/.kube
-        echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
+      # Настройка доступа к Kubernetes
+      - name: Set Kubernetes context
+        uses: azure/k8s-set-context@v4
+        with:
+          method: service-account
+          k8s-url: ${{ secrets.KUBERNETES_URL }}
+          k8s-secret: ${{ secrets.KUBERNETES_SECRET }}
 
-    # Проверка доступности Kubernetes кластера
-    - name: Verify Kubernetes connection
-      run: |
-        kubectl config view
-        kubectl cluster-info
-        echo "Kubernetes cluster is accessible."
+      # Проверка доступности Kubernetes кластера
+      - name: Verify Kubernetes connection
+        run: |
+          kubectl cluster-info
+          echo "Kubernetes cluster is accessible."
 
-    # Деплой Docker-образа с тегом в Kubernetes
-    - name: Deploy tagged Docker image to Kubernetes
-      run: |
-        TAG=${GITHUB_REF#refs/tags/}
-        kubectl set image deployment/nginx-deployment nginx=maltsevvm/test_app:${TAG} -n default
-        kubectl rollout status deployment/nginx-deployment -n default
+      # Деплой Docker-образа в Kubernetes
+      - name: Deploy to Kubernetes
+        run: |
+          kubectl set image deployment/my-deployment my-container=${{ env.IMAGE_NAME }}:${{ env.TAG }} --record
+          kubectl rollout status deployment/my-deployment
 
-    # Проверка успешности деплоя
-    - name: Verify deployment rollout
-      if: startsWith(github.ref, 'refs/tags/')
-      run: |
-        kubectl get pods -n default
-        kubectl rollout status deployment/nginx-deployment -n default
-        echo "Deployment with tag ${TAG} successfully rolled out."
+      # Проверка успешности деплоя
+      - name: Verify deployment
+        run: |
+          kubectl get pods
+          echo "Deployment with tag ${{ env.TAG }} successfully rolled out."
 
+      # Уведомление об успешном деплое
+      - name: Notify Deployment Success
+        if: success()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          fields: repo,ref,author,commit
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
